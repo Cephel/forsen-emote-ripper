@@ -116,18 +116,6 @@ public class Program
 	// These 2 methods could probably be combined, because most code is shared
 	private static void RipImageWorkerBTTV(bttvemote emote)
 	{
-		using var client = new HttpClient();
-		client.BaseAddress = new Uri(forsenBTTVEMOTEAPI);
-
-		client.DefaultRequestHeaders.Add("User-Agent", userAgent);
-
-		var response = client.GetAsync($"emote/{emote.id}/3x").Result;
-		response.EnsureSuccessStatusCode();
-
-		var stream = response.Content.ReadAsStreamAsync().Result;
-
-		using var image = Image.FromStream(stream);
-
 		ImageFormat imageformat;
 		switch (emote.imageType)
 		{
@@ -142,7 +130,62 @@ public class Program
 				throw new InvalidOperationException($"Unknown emote.imageType: {emote.imageType}");
 		}
 
-		image.Save($"output/{emote.code}.{emote.imageType}", imageformat);
+		using var client = new HttpClient();
+		client.BaseAddress = new Uri(forsenBTTVEMOTEAPI);
+
+		client.DefaultRequestHeaders.Add("User-Agent", userAgent);
+
+		var response = client.GetAsync($"emote/{emote.id}/3x").Result;
+		response.EnsureSuccessStatusCode();
+
+		var stream = response.Content.ReadAsStreamAsync().Result;
+		using var image = Image.FromStream(stream);
+		var fpath = $"output/{emote.code}.{emote.imageType}";
+		image.Save(fpath, imageformat);
+
+		// Check for file size, must be under 256kb
+		// Yes, this is the worst example of code reuse I can think of
+		var finfo = new FileInfo(fpath);
+		if (finfo.Length > 256 * 1024)
+		{
+			File.Delete(fpath);
+
+			var response2x = client.GetAsync($"emote/{emote.id}/2x").Result;
+			response2x.EnsureSuccessStatusCode();
+
+			var stream2x = response2x.Content.ReadAsStreamAsync().Result;
+			using var image2x = Image.FromStream(stream2x);
+			var fpath2x = $"output/{emote.code}2x.{emote.imageType}";
+			image2x.Save(fpath2x, imageformat);
+
+			var finfo2x = new FileInfo(fpath2x);
+			if (finfo2x.Length > 256 * 1024)
+			{
+				File.Delete(fpath2x);
+
+				var response1x = client.GetAsync($"emote/{emote.id}/1x").Result;
+				response1x.EnsureSuccessStatusCode();
+
+				var stream1x = response1x.Content.ReadAsStreamAsync().Result;
+				using var image1x = Image.FromStream(stream1x);
+				var fpath1x = $"output/{emote.code}1x.{emote.imageType}";
+				image1x.Save(fpath1x, imageformat);
+
+				var finfo1x = new FileInfo(fpath1x);
+				if (finfo1x.Length > 256 * 1024)
+				{
+					Console.WriteLine($"WARN: {emote.code} is too large even at the smallest size.");
+				}
+				else
+				{
+					File.Move(fpath1x, fpath);
+				}
+			}
+			else
+			{
+				File.Move(fpath2x, fpath);
+			}
+		}
 	}
 
 	// Do not reuse DTOs like this
@@ -157,7 +200,6 @@ public class Program
 		response.EnsureSuccessStatusCode();
 
 		var stream = response.Content.ReadAsStreamAsync().Result;
-
 		using var image = Image.FromStream(stream);
 		image.Save($"output/{emote.code}.{emote.imageType}", ImageFormat.Png);
 	}
